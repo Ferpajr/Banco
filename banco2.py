@@ -3,14 +3,16 @@ opcao = -1
 limite = 500
 extrato = ""
 numero_saques = 0
-limte_saque = 3
+limite_saque = 3
 valor_emprestimo = 0
 anos_pagamento = 0
 parcela_mensal = 0
+valor_total = 0
+parcelas_pagas = 0
 
 while True:
     
-    opcao = int(input('[1] sacar\n[2] depositar\n[3] consultar saldo\n[4] consultar extrato\n[5] Calcular emprestimo\n[6] Fazer emprestimo\n[7] Pagar parcela do emprestimo\n[0] sair\n:'))
+    opcao = int(input('[1] sacar\n[2] depositar\n[3] consultar saldo\n[4] consultar extrato\n[5] Calcular emprestimo\n[6] Fazer emprestimo\n[7] Pagar parcela do emprestimo\n[8] Pagar todo o emprestimo\n[0] sair\n:'))
 
     if opcao == 1:
         valor = float(input('Digite o valor do saque: '))
@@ -19,7 +21,7 @@ while True:
 
         excedeu_limite = valor > limite
 
-        excedeu_limite_saque = numero_saques >= limte_saque
+        excedeu_limite_saque = numero_saques >= limite_saque
 
         if excedeu_saldo:
             print('operacao invalida: saldo insuficiente')
@@ -77,6 +79,7 @@ while True:
         #calcular o valor total a ser pago no fim do emprestimo
         valor_total = valor_emprestimo * (1 + taxa_juros_anual) ** anos_pagamento
         parcela_mensal = valor_total / (anos_pagamento * 12)
+        parcelas_pagas = 0
 
         saldo += valor_emprestimo
         extrato += f'Empréstimo de R$ {valor_emprestimo:.2f}\n'
@@ -87,11 +90,28 @@ while True:
         if parcela_mensal > 0:
             saldo -= parcela_mensal
             extrato += f'Pagamento de parcela de R$ {parcela_mensal:.2f}\n'
+            parcelas_pagas += 1
             print('Parcela paga com sucesso!')
             print(f'Seu saldo é de R$ {saldo:.2f}')
         else:
             print('Você não possui parcelas para pagar!')
-    
+
+    elif opcao == 8:
+        if valor_total > 0:
+            valor_restante = valor_total - (parcelas_pagas * parcela_mensal)
+            saldo -= valor_restante
+            extrato += f'Pagamento total do empréstimo de R$ {valor_restante:.2f}\n'
+            print('Pagamento total do empréstimo efetuado com sucesso!')
+            print(f'Seu saldo é de R$ {saldo:.2f}')
+            # Resetar os valores do empréstimo
+            valor_emprestimo = 0
+            anos_pagamento = 0
+            parcela_mensal = 0
+            valor_total = 0
+            parcelas_pagas = 0
+        else:
+            print('Você não possui empréstimos para pagar!')
+
     elif opcao == 0:
         print('Obrigado por utilizar o banco!')
         break
