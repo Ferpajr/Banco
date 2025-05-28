@@ -1,216 +1,421 @@
+from abc import ABC, abstractmethod
+from datetime import datetime
 import textwrap
+
+class Cliente:
+    def __init__(self, endereco):
+        self.endereco = endereco
+        self.contas = []
+
+    def realizar_transacao(self, conta, transacao):
+        transacao.registrar(conta)
+
+    def adicionar_conta(self, conta):
+        self.contas.append(conta)
+
+class PessoaFisica(Cliente):
+    def __init__(self, nome, cpf, data_nascimento, endereco):
+        super().__init__(endereco)
+        self.nome = nome
+        self.data_nascimento = data_nascimento
+        self.cpf = cpf
+
+class Historico:
+    def __init__(self):
+        self._transacoes = []
+
+    @property
+    def transacoes(self):
+        return self._transacoes
+
+    def adicionar_transacao(self, transacao):
+        self._transacoes.append({
+            "tipo": transacao.__class__.__name__,
+            "valor": transacao.valor,
+            "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+
+class Conta:
+    def __init__(self, numero, cliente):
+        self._saldo = 0
+        self._numero = numero
+        self._agencia = '0001'
+        self._cliente = cliente
+        self._historico = Historico()
+
+    @classmethod
+    def criar_conta(cls, numero, cliente):
+        return cls(numero, cliente)
+    
+    @property
+    def saldo(self):
+        return self._saldo
+    
+    @property
+    def numero(self):
+        return self._numero
+    
+    @property
+    def agencia(self):
+        return self._agencia
+    
+    @property
+    def cliente(self):
+        return self._cliente
+    
+    @property
+    def historico(self):
+        return self._historico
+    
+    def sacar(self, valor):
+        excedeu_saldo = valor > self._saldo
+        
+        if excedeu_saldo:
+            print('Operação falhou! Você não tem saldo suficiente.')
+        elif valor > 0:
+            self._saldo -= valor
+            print(f'Saque realizado com sucesso! Novo saldo: {self._saldo}')
+            return True
+        else:
+            print('Operação falhou! O valor informado é inválido.')
+        return False
+    
+    def depositar(self, valor):
+        if valor > 0:
+            self._saldo += valor
+            print(f'Depósito realizado com sucesso! Novo saldo: {self._saldo}')
+            return True
+        else:
+            print('Operação falhou! O valor informado é inválido.')
+            return False
+
+class ContaCorrente(Conta):
+    def __init__(self, numero, cliente, limite=1000, limite_saque=3):
+        super().__init__(numero, cliente)
+        self.limite = limite
+        self.limite_saque = limite_saque
+        
+    def sacar(self, valor):
+        numero_saque = len([transacao for transacao in self.historico.transacoes if transacao["tipo"] == "Saque"])
+        excedeu_limite = valor > self.limite
+        excedeu_saque = numero_saque >= self.limite_saque
+
+        if excedeu_limite:
+            print('Operação falhou! O valor do saque excede o limite da conta.')   
+        elif excedeu_saque:
+            print('Operação falhou! Você excedeu o número de saques permitidos.') 
+        else:
+            return super().sacar(valor)
+        return False
+
+    def __str__(self):
+        return f"""\
+agência:\t{self.agencia}
+C/C: \t\t{self.numero}
+cliente:\t{self.cliente.nome}
+"""
+
+class Transacao(ABC):
+    @property
+    @abstractmethod
+    def valor(self):
+        pass
+    
+    @classmethod
+    @abstractmethod
+    def registrar(cls, conta):
+        pass
+
+class Saque(Transacao):
+    def __init__(self, valor):
+        self._valor = valor
+    
+    @property
+    def valor(self):
+        return self._valor
+    
+    def registrar(self, conta):
+        sucesso_transacao = conta.sacar(self._valor)
+        if sucesso_transacao:
+            conta.historico.adicionar_transacao(self)
+
+class Deposito(Transacao):
+    def __init__(self, valor):
+        self._valor = valor
+    
+    @property
+    def valor(self):
+        return self._valor
+    
+    def registrar(self, conta):
+        sucesso_transacao = conta.depositar(self._valor)
+        if sucesso_transacao:
+            conta.historico.adicionar_transacao(self)
 
 def menu():
     menu = """\n
-    [s] sacar
-    [d] depositar
-    [cs] consultar saldo
-    [ce] consultar extrato
-    [cep] Calcular emprestimo
-    [fe] Fazer emprestimo
-    [pp] Pagar parcela do emprestimo
-    [pte] Pagar todo o emprestimo
-    [nu] Novo usuário
-    [fu] Filtrar usuário
-    [cc] Criar conta
-    [lc] Listar contas
-    [e] sair
-     => """
+=========================MENU=========================
+    [d]\t Depositar
+    [s]\t Sacar
+    [e]\t Extrato
+    [nc]\t Nova Conta
+    [lc]\t Listar Contas
+    [nu]\t Novo Usuário
+    [emp]\t Simular/Contratar Empréstimo
+    [pagp]\t Pagar Parcela do Empréstimo
+    [quit]\t Quitar Empréstimo
+    [q]\t Sair
+"""
     return input(textwrap.dedent(menu))
 
-def sacar(*,saldo,valor,extrato,limite,numero_saque,limite_saque):
-    excedeu_saldo = valor > saldo
-    excedeu_limite = valor > limite
-    excedeu_limite_saque = numero_saque >= limite_saque
+def main():
+    clientes = []
+    contas = []
 
-    if excedeu_saldo:
-        print('operacao invalida: saldo insuficiente')
+    cliente_logado = None
 
-    elif excedeu_limite:
-        print('operacao invalida: o valor do saque excede o limite')
+    while True:
+        if not cliente_logado:
+            print("\nBem-vindo! Escolha uma opção:")
+            print("[nu] Novo Usuário")
+            print("[q]  Sair")
+            print("[login] Fazer login")
+            escolha = input("Opção: ").strip().lower()
 
-    elif excedeu_limite_saque:
-        print('operacao invalida: voce excedeu o limite de saques')
+            if escolha == 'nu':
+                criar_cliente(clientes)
+                continue
+            elif escolha == 'q':
+                print("Saindo do sistema...")
+                break
+            elif escolha == 'login':
+                cliente_logado = login(clientes)
+                continue
+            else:
+                print("Opção inválida!")
+                continue
 
-    elif valor > 0:
-        saldo -= valor
-        extrato += f'Saque de R$ {valor:.2f}\n'
-        numero_saque += 1
-        print('Saque efetuado com sucesso!')
+        opcao = menu()
 
-    else:
-        print('operacao invalida: valor inválido!')
-    return saldo,extrato,numero_saque
+        if opcao == 'd':
+            depositar(cliente_logado)
+        elif opcao == 's':
+            sacar(cliente_logado)
+        elif opcao == 'e':
+            exibir_extrato(cliente_logado)
+        elif opcao == 'nc':
+            numero_conta = len(contas) + 1
+            criar_conta(numero_conta, clientes, contas)
+        elif opcao == 'lc':
+            listar_contas(contas)
+        elif opcao == 'nu':
+            criar_cliente(clientes)
+        elif opcao == 'emp':
+            valor = float(input("Valor do empréstimo: "))
+            parcelas = int(input("Quantidade de parcelas: "))
+            taxa = float(input("Taxa de juros mensal (ex: 0.02 para 2%): "))
+            simular_emprestimo(valor, parcelas, taxa)
+            contratar = input("Deseja contratar este empréstimo? (s/n): ").strip().lower()
+            if contratar == 's':
+                contratar_emprestimo(cliente_logado, valor, parcelas, taxa)
+        elif opcao == 'pagp':
+            pagar_parcela_emprestimo(cliente_logado)
+        elif opcao == 'quit':
+            quitar_emprestimo(cliente_logado)
+        elif opcao == 'q':
+            print("Saindo do sistema...")
+            break
+        elif opcao == 'logout':
+            cliente_logado = None
 
-def depositar(*,saldo,deposito,extrato):
-    if deposito > 0:
-        saldo += deposito
-        extrato += f'Depósito de R$ {deposito:.2f}\n'
-        print('Depósito efetuado com sucesso!')
-    else:
-        print('Valor inválido!')
-    return saldo,extrato
+def filtrar_cliente(cpf, clientes):
+    clientes_filtrados = [cliente for cliente in clientes if cliente.cpf == cpf]
+    return clientes_filtrados[0] if clientes_filtrados else None
 
-def consultar_saldo(*,saldo):
-    print(f'Seu saldo é de R$ {saldo:.2f}')
+def login(clientes):
+    cpf = input('Digite o CPF do cliente (somente números): ')
+    cliente = filtrar_cliente(cpf, clientes)
+    if not cliente:
+        print('Cliente não encontrado!')
+        return None
+    return cliente
 
-def consultar_extrato(*,extrato,saldo):
-    print('\n========== EXTRATO ==========\n')
-    print(extrato if extrato else 'Não foram realizadas movimentações.')
-    print(f'\nSaldo atual: R$ {saldo:.2f}')
-    print('==============================')
-
-def calcular_emprestimo(*,valor_emprestimo,taxa_juros_anual,anos_pagamento):
-    valor_total = valor_emprestimo * (1 + taxa_juros_anual) ** anos_pagamento
-    parcela_mensal = valor_total / (anos_pagamento * 12)
-    return valor_total,parcela_mensal
-
-def fazer_emprestimo(*,saldo,valor_emprestimo,taxa_juros_anual,anos_pagamento):
-    valor_total = valor_emprestimo * (1 + taxa_juros_anual) ** anos_pagamento
-    parcela_mensal = valor_total / (anos_pagamento * 12)
-    saldo += valor_emprestimo
-    print('Empréstimo efetuado com sucesso!')
-    print(f'Seu saldo é de R$ {saldo:.2f}')
-    return saldo,valor_total,parcela_mensal
-
-def pagar_parcela_emprestimo(*,saldo,parcela_mensal,extrato):
-    saldo -= parcela_mensal
-    extrato += f'Pagamento de parcela de R$ {parcela_mensal:.2f}\n'
-    print('Parcela paga com sucesso!')
-    print(f'Seu saldo é de R$ {saldo:.2f}')
-    return saldo,extrato
-
-def pagar_todo_emprestimo(*,saldo,valor_total,parcelas_pagas,parcela_mensal,extrato):
-    valor_restante = valor_total - (parcelas_pagas * parcela_mensal)
-    saldo -= valor_restante
-    extrato += f'Pagamento total do empréstimo de R$ {valor_restante:.2f}\n'
-    print('Pagamento total do empréstimo efetuado com sucesso!')
-    print(f'Seu saldo é de R$ {saldo:.2f}')
-    return saldo,extrato
-
-def novo_usuario(usuarios):
-    cpf = input('Digite o CPF (somente numeros): ')
-    usuario = filtrar_usuario(usuarios,cpf)
-    if usuario:
-        print('CPF já cadastrado!')
+def sacar(cliente):
+    valor = float(input('Digite o valor do saque: '))
+    transacao = Saque(valor)
+    conta = recuperar_conta_cliente(cliente)
+    if not conta:
         return
-    nome = input('Digite o seu nome completo: ')
-    data_nascimento = input('Digite a sua data de nascimento (dd/mm/aaaa): ')
-    email = input('Digite o seu email: ')
-    endereco = input('Digite o seu endereco (logradouro, nr - bairro - cidade/sigla do estado): ')
-    telefone = input('Digite o seu telefone (xx) xxxx-xxxx: ')
-    senha = input('Digite a sua senha: ')
-    usuarios.append({'cpf':cpf,'nome':nome,'data_nascimento':data_nascimento,'email':email,'endereco':endereco,'telefone':telefone,'senha':senha})
-    print('Usuário criado com sucesso!')
+    cliente.realizar_transacao(conta, transacao)
 
-def filtrar_usuario(usuarios, cpf):
-    for usuario in usuarios:
-        if usuario['cpf'] == cpf:
-            return usuario
-    return None
-
-def criar_conta(agencia, usuarios, contador_contas):
-    cpf = input('Digite o CPF do usuário (somente numeros): ')
-    usuario = filtrar_usuario(usuarios,cpf)
-    if not usuario:
-        print('Usuário não encontrado!')
+def exibir_extrato(cliente):
+    conta = recuperar_conta_cliente(cliente)
+    if not conta:
         return
-    numero_conta = f"{contador_contas:06d}"  # Gera um número de conta com 6 dígitos
-    conta = {'agencia':agencia,'numero_conta':numero_conta,'cpf':cpf,'saldo':0,'extrato':'','numero_saques':0,'limite_saque':3,'limite':500,'valor_emprestimo':0,'anos_pagamento':0,'parcela_mensal':0,'valor_total':0,'parcelas_pagas':0}
-    return conta
+    print("\n=========================EXTRATO=========================")
+    transacoes = conta.historico.transacoes
+    extrato = ""
+    if not transacoes:
+        extrato = "Não foram realizadas transações."
+    else:
+        for transacao in transacoes:
+            extrato += f"\n{transacao['tipo']}:\n\tR$ {transacao['valor']:.2f}"
+    print(extrato)
+    print(f"\nSaldo: R$ {conta.saldo:.2f}")
+    print("=========================================================")
+
+def criar_conta(numero, clientes, contas):
+    cpf = input('Digite o CPF do cliente (somente números): ')
+    cliente = filtrar_cliente(cpf, clientes)
+
+    if not cliente:
+        print('Cliente não encontrado!')
+        return
+    
+    conta = ContaCorrente.criar_conta(cliente=cliente, numero=numero)
+    contas.append(conta)
+    cliente.contas.append(conta)
+    print(f'Conta criada com sucesso! Número da conta: {conta.numero}, Agência: {conta.agencia}')
 
 def listar_contas(contas):
     for conta in contas:
-        linha =f"""\ 
-        Agência: {conta['agencia']}
-        Número da conta: {conta['numero_conta']}
-        titular: {conta['cpf']}
-        """
         print("=" * 100)
-        print(textwrap.dedent(linha))
+        print(textwrap.dedent(str(conta)))
 
-def main():
-    saldo = 0
-    opcao = -1
-    limite = 500
-    extrato = ""
-    numero_saques = 0
-    limite_saque = 3
-    valor_emprestimo = 0
-    anos_pagamento = 0
-    parcela_mensal = 0
-    valor_total = 0
-    parcelas_pagas = 0
-    usuarios = []
-    contas = []
-    agencia = '0001'
-    contador_contas = 1
+def criar_cliente(clientes):
+    cpf = input('Digite o CPF do cliente (somente números): ')
+    cliente = filtrar_cliente(cpf, clientes)
 
-    while True:
-        opcao = menu()
-
-        if opcao == 's':
-            valor = float(input('Digite o valor do saque: '))
-            saldo,extrato,numero_saques = sacar(saldo=saldo,valor=valor,extrato=extrato,limite=limite,numero_saque=numero_saques,limite_saque=limite_saque)
+    if cliente:
+        print('CPF já cadastrado!')
+        return
     
-        elif opcao == 'd':
-            deposito = float(input('Digite o valor do depósito: '))
-            saldo,extrato = depositar(saldo=saldo,deposito=deposito,extrato=extrato)
-        
-        elif opcao == 'cs':
-            consultar_saldo(saldo=saldo)
+    nome = input('Digite o nome completo do cliente: ')
+    data_nascimento = input('Digite a data de nascimento do cliente (dd/mm/aaaa): ')
+    endereco = input('Digite o endereço do cliente (logradouro, nr - bairro - cidade/sigla do estado): ')
 
-        elif opcao == 'ce':
-            consultar_extrato(extrato=extrato,saldo=saldo)
-        
-        elif opcao == 'cep':
-            valor_emprestimo_consulta = float(input('Digite o valor do empréstimo: '))
-            taxa_juros_anual = 7.91 / 100
-            anos_pagamento_consulta = int(input('Digite a quantidade de anos para pagamento: '))
-            valor_total_consulta,parcela_mensal_consulta = calcular_emprestimo(valor_emprestimo=valor_emprestimo_consulta,taxa_juros_anual=taxa_juros_anual,anos_pagamento=anos_pagamento_consulta)
-            print(f'O valor total a ser pago no fim do empréstimo é de R$ {valor_total_consulta:.2f}')
-            print(f'O valor da parcela mensal é de R$ {parcela_mensal_consulta:.2f}')
-        
-        elif opcao == 'fe':
-            valor_emprestimo = float(input('Digite o valor do empréstimo: '))
-            taxa_juros_anual = 7.91 / 100
-            anos_pagamento = int(input('Digite a quantidade de anos para pagamento: '))
-            saldo,valor_total,parcela_mensal = fazer_emprestimo(saldo=saldo,valor_emprestimo=valor_emprestimo,taxa_juros_anual=taxa_juros_anual,anos_pagamento=anos_pagamento)
-        
-        elif opcao == 'pp':
-            saldo,extrato = pagar_parcela_emprestimo(saldo=saldo,parcela_mensal=parcela_mensal,extrato=extrato)
-        
-        elif opcao == 'pte':
-            saldo,extrato = pagar_todo_emprestimo(saldo=saldo,valor_total=valor_total,parcelas_pagas=parcelas_pagas,parcela_mensal=parcela_mensal,extrato=extrato)
-        
-        elif opcao == 'nu':
-            novo_usuario(usuarios)
-        
-        elif opcao == 'fu':
-            cpf = input('Digite o CPF (somente numeros): ')
-            usuario = filtrar_usuario(usuarios, cpf)
-            if usuario:
-                print(f'Usuário encontrado: {usuario}')
-            else:
-                print('Usuário não encontrado!')
-        
-        elif opcao == 'cc':
-            conta = criar_conta(agencia, usuarios, contador_contas)
-            if conta:
-                contas.append(conta)
-                contador_contas += 1
-                print('Conta criada com sucesso!')
-        
-        elif opcao == 'lc':
-            listar_contas(contas)
-        
-        elif opcao == 'e':
-            break
+    cliente = PessoaFisica(nome=nome, cpf=cpf, data_nascimento=data_nascimento, endereco=endereco)
+    clientes.append(cliente)
+
+    print('Cliente criado com sucesso!')
+
+def depositar(cliente):
+    valor = float(input('Digite o valor do depósito: '))
+    transacao = Deposito(valor)
+    conta = recuperar_conta_cliente(cliente)
+    if not conta:
+        return
+    cliente.realizar_transacao(conta, transacao)
+
+def recuperar_conta_cliente(cliente):
+    if not cliente.contas:
+        print("Cliente não possui conta.")
+        return 
+    
+    # FIXME: Retorna a primeira conta do cliente
+    return cliente.contas[0]
+
+def simular_emprestimo(valor, parcelas, taxa_juros):
+    """
+    Apenas simula o valor total e o valor de cada parcela do empréstimo.
+    Não altera nada no cliente.
+    """
+    valor_total = valor * (1 + taxa_juros * parcelas)
+    valor_parcela = valor_total / parcelas
+    print(f"Simulação de Empréstimo:")
+    print(f"Valor total: R$ {valor_total:.2f}")
+    print(f"Parcelas: {parcelas} de R$ {valor_parcela:.2f}")
+    return valor_total, valor_parcela
+
+def contratar_emprestimo(cliente, valor, parcelas, taxa_juros):
+    """
+    Contrata o empréstimo, salvando os dados no cliente e depositando o valor na conta.
+    """
+    valor_total = valor * (1 + taxa_juros * parcelas)
+    valor_parcela = valor_total / parcelas
+    cliente.emprestimo = {
+        "valor_total": valor_total,
+        "parcelas": parcelas,
+        "valor_parcela": valor_parcela,
+        "parcelas_pagas": 0,
+        "saldo_devedor": valor_total
+    }
+    # Deposita o valor do empréstimo na conta do cliente
+    conta = recuperar_conta_cliente(cliente)
+    if conta:
+        conta.depositar(valor)
+        print(f"Valor de R$ {valor:.2f} depositado na conta referente ao empréstimo.")
+    print(f"Empréstimo contratado com sucesso!")
+    print(f"Valor total: R$ {valor_total:.2f}")
+    print(f"Parcelas: {parcelas} de R$ {valor_parcela:.2f}")
+
+def calcular_emprestimo(cliente, valor, parcelas, taxa_juros):
+    """
+    Calcula o valor total do empréstimo e o valor de cada parcela.
+    Salva o empréstimo no cliente.
+    """
+    valor_total = valor * (1 + taxa_juros * parcelas)
+    valor_parcela = valor_total / parcelas
+    cliente.emprestimo = {
+        "valor_total": valor_total,
+        "parcelas": parcelas,
+        "valor_parcela": valor_parcela,
+        "parcelas_pagas": 0,
+        "saldo_devedor": valor_total
+    }
+    print(f"Empréstimo aprovado!\nValor total: R$ {valor_total:.2f}\nParcelas: {parcelas} de R$ {valor_parcela:.2f}")
+
+def pagar_parcela_emprestimo(cliente):
+    """
+    Paga uma parcela do empréstimo, se houver saldo devedor.
+    """
+    if not hasattr(cliente, "emprestimo") or cliente.emprestimo["saldo_devedor"] <= 0:
+        print("Nenhum empréstimo ativo para este cliente.")
+        return
+
+    if cliente.emprestimo["parcelas_pagas"] >= cliente.emprestimo["parcelas"]:
+        print("Todas as parcelas já foram pagas!")
+        return
+
+    conta = recuperar_conta_cliente(cliente)
+    valor_parcela = cliente.emprestimo["valor_parcela"]
+
+    if conta.saldo < valor_parcela:
+        print("Saldo insuficiente para pagar a parcela do empréstimo.")
+        return
+
+    # Desconta o valor da parcela do saldo da conta
+    conta.sacar(valor_parcela)
+
+    cliente.emprestimo["parcelas_pagas"] += 1
+    cliente.emprestimo["saldo_devedor"] -= valor_parcela
+    if cliente.emprestimo["saldo_devedor"] < 0:
+        cliente.emprestimo["saldo_devedor"] = 0
+
+    print(f"Parcela paga com sucesso! Parcelas pagas: {cliente.emprestimo['parcelas_pagas']}/{cliente.emprestimo['parcelas']}")
+    print(f"Saldo devedor atual: R$ {cliente.emprestimo['saldo_devedor']:.2f}")
+
+def quitar_emprestimo(cliente):
+    """
+    Quita o valor total do empréstimo, considerando parcelas já pagas e saldo disponível.
+    """
+    if not hasattr(cliente, "emprestimo") or cliente.emprestimo["saldo_devedor"] <= 0:
+        print("Nenhum empréstimo ativo para este cliente.")
+        return
+
+    conta = recuperar_conta_cliente(cliente)
+    saldo_devedor = cliente.emprestimo["saldo_devedor"]
+
+    if conta.saldo < saldo_devedor:
+        print("Saldo insuficiente para quitar o empréstimo.")
+        return
+
+    conta.sacar(saldo_devedor)
+    cliente.emprestimo["parcelas_pagas"] = cliente.emprestimo["parcelas"]
+    cliente.emprestimo["saldo_devedor"] = 0
+    print(f"Valor para quitação: R$ {saldo_devedor:.2f}")
+    print("Empréstimo quitado com sucesso!")
+    print(f"Saldo atual após quitação: R$ {conta.saldo:.2f}")
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
