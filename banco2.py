@@ -2,13 +2,14 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 import textwrap
 
+
 class Cliente:
     def __init__(self, endereco):
         self.endereco = endereco
         self.contas = []
 
     def realizar_transacao(self, conta, transacao):
-        transacao.registrar(conta)
+        return transacao.registrar(conta)
 
     def adicionar_conta(self, conta):
         self.contas.append(conta)
@@ -89,6 +90,12 @@ class Conta:
             print('Operação falhou! O valor informado é inválido.')
             return False
 
+    def debitar_emprestimo(self, valor):
+        if valor > 0 and self._saldo >= valor:
+            self._saldo -= valor
+            return True
+        return False
+
 class ContaCorrente(Conta):
     def __init__(self, numero, cliente, limite=1000, limite_saque=3):
         super().__init__(numero, cliente)
@@ -138,6 +145,7 @@ class Saque(Transacao):
         sucesso_transacao = conta.sacar(self._valor)
         if sucesso_transacao:
             conta.historico.adicionar_transacao(self)
+        return sucesso_transacao
 
 class Deposito(Transacao):
     def __init__(self, valor):
@@ -151,6 +159,37 @@ class Deposito(Transacao):
         sucesso_transacao = conta.depositar(self._valor)
         if sucesso_transacao:
             conta.historico.adicionar_transacao(self)
+        return sucesso_transacao
+
+class PagamentoParcelaEmprestimo(Transacao):
+    def __init__(self, valor):
+        self._valor = valor
+
+    @property
+    def valor(self):
+        return self._valor
+
+    def registrar(self, conta):
+        # Registrar pagamento de parcela como um saque na conta e adicionar ao histórico
+        sucesso_transacao = conta.sacar(self._valor)
+        if sucesso_transacao:
+            conta.historico.adicionar_transacao(self)
+        return sucesso_transacao
+
+class QuitacaoEmprestimo(Transacao):
+    def __init__(self, valor):
+        self._valor = valor
+
+    @property
+    def valor(self):
+        return self._valor
+
+    def registrar(self, conta):
+        # Registrar quitação do empréstimo como débito direto (se houver saldo) e adicionar ao histórico
+        sucesso_transacao = conta.debitar_emprestimo(self._valor)
+        if sucesso_transacao:
+            conta.historico.adicionar_transacao(self)
+        return sucesso_transacao
 
 def menu():
     menu = """\n
@@ -215,7 +254,7 @@ def main():
             parcelas = int(input("Quantidade de parcelas: "))
             taxa = float(input("Taxa de juros mensal (ex: 0.02 para 2%): "))
             simular_emprestimo(valor, parcelas, taxa)
-            contratar = input("Deseja contratar este empréstimo? (s/n): ").strip().lower()
+            contratar = input("Deseja contratar este empréstimo? (s/n): ")
             if contratar == 's':
                 contratar_emprestimo(cliente_logado, valor, parcelas, taxa)
         elif opcao == 'pagp':
@@ -240,7 +279,21 @@ def login(clientes):
         return None
     return cliente
 
+def depositar(cliente):
+    if not cliente.contas:
+        print("Cliente não possui conta. Crie uma conta antes de depositar.")
+        return
+    valor = float(input('Digite o valor do depósito: '))
+    transacao = Deposito(valor)
+    conta = recuperar_conta_cliente(cliente)
+    if not conta:
+        return
+    cliente.realizar_transacao(conta, transacao)
+
 def sacar(cliente):
+    if not cliente.contas:
+        print("Cliente não possui conta. Crie uma conta antes de sacar.")
+        return
     valor = float(input('Digite o valor do saque: '))
     transacao = Saque(valor)
     conta = recuperar_conta_cliente(cliente)
@@ -299,21 +352,26 @@ def criar_cliente(clientes):
 
     print('Cliente criado com sucesso!')
 
-def depositar(cliente):
-    valor = float(input('Digite o valor do depósito: '))
-    transacao = Deposito(valor)
-    conta = recuperar_conta_cliente(cliente)
-    if not conta:
-        return
-    cliente.realizar_transacao(conta, transacao)
-
-def recuperar_conta_cliente(cliente):
+def contratar_emprestimo(cliente, valor, parcelas, taxa_juros):
     if not cliente.contas:
-        print("Cliente não possui conta.")
-        return 
-    
-    # FIXME: Retorna a primeira conta do cliente
-    return cliente.contas[0]
+        print("Cliente não possui conta. Crie uma conta antes de contratar empréstimo.")
+        return
+    valor_total = valor * (1 + taxa_juros * parcelas)
+    valor_parcela = valor_total / parcelas
+    cliente.emprestimo = {
+        "valor_total": valor_total,
+        "parcelas": parcelas,
+        "valor_parcela": valor_parcela,
+        "parcelas_pagas": 0,
+        "saldo_devedor": valor_total
+    }
+    conta = recuperar_conta_cliente(cliente)
+    if conta:
+        conta.depositar(valor)
+        print(f"Valor de R$ {valor:.2f} depositado na conta referente ao empréstimo.")
+    print(f"Empréstimo contratado com sucesso!")
+    print(f"Valor total: R$ {valor_total:.2f}")
+    print(f"Parcelas: {parcelas} de R$ {valor_parcela:.2f}")
 
 def simular_emprestimo(valor, parcelas, taxa_juros):
     """
@@ -326,28 +384,6 @@ def simular_emprestimo(valor, parcelas, taxa_juros):
     print(f"Valor total: R$ {valor_total:.2f}")
     print(f"Parcelas: {parcelas} de R$ {valor_parcela:.2f}")
     return valor_total, valor_parcela
-
-def contratar_emprestimo(cliente, valor, parcelas, taxa_juros):
-    """
-    Contrata o empréstimo, salvando os dados no cliente e depositando o valor na conta.
-    """
-    valor_total = valor * (1 + taxa_juros * parcelas)
-    valor_parcela = valor_total / parcelas
-    cliente.emprestimo = {
-        "valor_total": valor_total,
-        "parcelas": parcelas,
-        "valor_parcela": valor_parcela,
-        "parcelas_pagas": 0,
-        "saldo_devedor": valor_total
-    }
-    # Deposita o valor do empréstimo na conta do cliente
-    conta = recuperar_conta_cliente(cliente)
-    if conta:
-        conta.depositar(valor)
-        print(f"Valor de R$ {valor:.2f} depositado na conta referente ao empréstimo.")
-    print(f"Empréstimo contratado com sucesso!")
-    print(f"Valor total: R$ {valor_total:.2f}")
-    print(f"Parcelas: {parcelas} de R$ {valor_parcela:.2f}")
 
 def calcular_emprestimo(cliente, valor, parcelas, taxa_juros):
     """
@@ -380,13 +416,14 @@ def pagar_parcela_emprestimo(cliente):
     conta = recuperar_conta_cliente(cliente)
     valor_parcela = cliente.emprestimo["valor_parcela"]
 
-    if conta.saldo < valor_parcela:
+    # Usar a transação para garantir registro no histórico
+    transacao = PagamentoParcelaEmprestimo(valor_parcela)
+    sucesso = cliente.realizar_transacao(conta, transacao)
+    if not sucesso:
         print("Saldo insuficiente para pagar a parcela do empréstimo.")
         return
 
-    # Desconta o valor da parcela do saldo da conta
-    conta.sacar(valor_parcela)
-
+    # Atualiza estado do empréstimo somente se a transação foi bem sucedida
     cliente.emprestimo["parcelas_pagas"] += 1
     cliente.emprestimo["saldo_devedor"] -= valor_parcela
     if cliente.emprestimo["saldo_devedor"] < 0:
@@ -398,6 +435,7 @@ def pagar_parcela_emprestimo(cliente):
 def quitar_emprestimo(cliente):
     """
     Quita o valor total do empréstimo, considerando parcelas já pagas e saldo disponível.
+    Não registra como saque no histórico da conta.
     """
     if not hasattr(cliente, "emprestimo") or cliente.emprestimo["saldo_devedor"] <= 0:
         print("Nenhum empréstimo ativo para este cliente.")
@@ -406,16 +444,34 @@ def quitar_emprestimo(cliente):
     conta = recuperar_conta_cliente(cliente)
     saldo_devedor = cliente.emprestimo["saldo_devedor"]
 
-    if conta.saldo < saldo_devedor:
-        print("Saldo insuficiente para quitar o empréstimo.")
+    # Usar transação de quitação para registrar no histórico
+    transacao = QuitacaoEmprestimo(saldo_devedor)
+    sucesso = cliente.realizar_transacao(conta, transacao)
+    if not sucesso:
+        # tentativa parcial de debitar: debitar_emprestimo retorna False se não houver saldo suficiente
+        valor_debitado = conta.debitar_emprestimo(saldo_devedor)
+        if valor_debitado:
+            cliente.emprestimo["saldo_devedor"] -= valor_debitado
+            print(f"Foi debitado R$ {valor_debitado:.2f} do saldo. Ainda falta R$ {cliente.emprestimo['saldo_devedor']:.2f} para quitar.")
+        else:
+            print("Saldo insuficiente para quitar o empréstimo.")
         return
 
-    conta.sacar(saldo_devedor)
-    cliente.emprestimo["parcelas_pagas"] = cliente.emprestimo["parcelas"]
+    # Se sucesso, atualiza estado do empréstimo
     cliente.emprestimo["saldo_devedor"] = 0
+    cliente.emprestimo["parcelas_pagas"] = cliente.emprestimo["parcelas"]
     print(f"Valor para quitação: R$ {saldo_devedor:.2f}")
     print("Empréstimo quitado com sucesso!")
     print(f"Saldo atual após quitação: R$ {conta.saldo:.2f}")
+
+def recuperar_conta_cliente(cliente):
+    """
+    Retorna a primeira conta do cliente, se existir.
+    """
+    if not cliente.contas:
+        print("Cliente não possui conta cadastrada.")
+        return None
+    return cliente.contas[0]
 
 if __name__ == "__main__":
     main()
